@@ -6,6 +6,14 @@ import operator
 
 START = ('**start**', 'START')
 END = ('**end**', 'END')
+EPS = 1e-16
+
+def _is_num(s):
+    try:
+        float(s)
+        return True
+    except ValueError:
+        return False
 
 def _atomize(categories):
     atoms = set([])
@@ -21,7 +29,8 @@ def _normalize(counts):
             total += counts[key1][key2]
 
         for key2 in counts[key1]:
-            counts[key1][key2] /= total
+            if total > 0:
+                counts[key1][key2] /= total
     return
 
 
@@ -42,9 +51,11 @@ def parse(docs):
                         seq.append(END); parsed.append(seq)
                         seq = [START]
                     continue
-                parts = [tuple(item.strip().rsplit('/', 1)) for item in line.split()]
+                parts = [item.strip().rsplit('/', 1) for item in line.split()]
                 for p in parts:
-                    seq.append(p)
+                    if _is_num(p[0]):
+                        p[0] = '__num__'
+                    seq.append(tuple(p))
 
                     # End of sequence.
                     if p[0] in ['.', '?', '!']:
@@ -78,7 +89,18 @@ def counter(parsed):
 
     for c in atoms:
         for v in vocabulary:
+            if (v, c) == START or (v, c) == END:
+                emission[c][v] = 1.
+                continue
+            if v == START[0] or v == END[0]:
+                emission[c][v] = EPS
+                continue
             emission[c][v] = 1.
+
+    # No tag transit from END or to START.
+    for c in atoms:
+        transition[END[1]][c] = EPS
+        transition[c][START[1]] = EPS
 
     for seq in parsed:
         for i in xrange(len(seq)):
