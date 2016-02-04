@@ -4,10 +4,7 @@ from viterbi import viterbi
 import numpy as np
 
 def _strip_pos(seq):
-    return [part[0].lower() for part in seq]
-
-def _lower(seq):
-    return [(part[0].lower(), part[1]) for part in seq]
+    return [part[0] for part in seq]
 
 def _fold(parsed, k):
     fold_size = len(parsed)/k
@@ -21,7 +18,7 @@ def _compare(s1, s2):
     assert len(s1) == len(s2)
     count_ok = 0
     for i in xrange(len(s1)):
-        if (s1[i][0].lower(), s1[i][1]) == s2[i]:
+        if s1[i] == s2[i]:
             count_ok += 1
     return count_ok, len(s1)
 
@@ -45,7 +42,7 @@ def k_fold_cross_valid_known(k, parsed, known):
         for seq in test:
             stripped_seq = _strip_pos(seq)
             out = viterbi(stripped_seq, transition, emission)
-            ok, total = _compare(_lower(seq)[1:-1], out)
+            ok, total = _compare(seq[1:-1], out)
             count_ok += ok; count_total += total
         res.append(count_ok/count_total)
         print 'Fold accuracy: ', res[-1]

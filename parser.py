@@ -6,7 +6,7 @@ import operator
 
 START = ('**start**', 'START')
 END = ('**end**', 'END')
-EPS = 1e-32
+EPS = 1e-64
 
 def _is_num(s):
     try:
@@ -54,7 +54,7 @@ def parse(docs):
                 for p in parts:
                     if p[1] == 'CD':
                         p[0] = '__num__'
-                    seq.append(tuple(p))
+                    seq.append((p[0].lower(), p[1]))
 
                     # End of sequence.
                     if p[0] in ['.', '?', '!']:
@@ -78,7 +78,7 @@ def counter(parsed):
     for seq in parsed:
         for part in seq:
             categories.add(part[1])
-            vocabulary.add(part[0].lower())
+            vocabulary.add(part[0])
 
     atoms = _atomize(categories)
     # trainsition count from c1 to c2 with smoothing.
@@ -106,7 +106,7 @@ def counter(parsed):
             # record emission count for ith part.
             tags = seq[i][1].split('|')
             for tag in tags:
-                s = seq[i][0].lower()
+                s = seq[i][0]
                 if s not in emission[tag]:
                     emission[tag][s] = 0
                 emission[tag][s] += 1

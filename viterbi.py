@@ -7,7 +7,7 @@ def _emit_prob(emission, cat, word):
     return emission[cat][word] if word in emission[cat] else EPS
 
 ####
-# seq: ['We', 'are', 'drinking', 'milktea', '**end**']
+# seq: ['**start**', 'we', 'are', 'drinking', 'milktea', '**end**']
 ####
 def viterbi(seq, transition, emission):
     assert seq[0] == START[0] and seq[-1] == END[0], seq
@@ -18,7 +18,6 @@ def viterbi(seq, transition, emission):
 
     scores = np.zeros((len(categories), len(seq)))
     backpointer = np.zeros((len(categories), len(seq)), dtype=int)
-    seq = [s.lower() for s in seq]
 
     for i, cat in enumerate(categories):
         scores[i, 0] = np.log(transition[START[1]][cat]) \
@@ -53,7 +52,7 @@ if __name__ == '__main__':
     np.random.shuffle(parsed)
     emission, transition = counter(parsed[:-1])
 
-    test_seq = [part[0].lower() for part in parsed[0]]
-    print 'test POS', parsed[0][1:-1]
+    test_seq = [part[0] for part in parsed[-1]]
+    print 'test POS', parsed[-1][1:-1]
     output = viterbi(test_seq, transition, emission)
     print 'TAGGED', output
