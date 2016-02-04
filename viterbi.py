@@ -4,11 +4,7 @@ from parser import EPS, START, END, counter, parse
 from glob import glob
 
 def _emit_prob(emission, cat, word):
-    if (word, cat) == START or (word, cat) == END:
-        return 1
-    if cat == START[1] or cat == END[1]:
-        return EPS
-    return emission[cat][word] if word in emission[cat] else 1
+    return emission[cat][word] if word in emission[cat] else EPS
 
 ####
 # seq: ['We', 'are', 'drinking', 'milktea', '**end**']

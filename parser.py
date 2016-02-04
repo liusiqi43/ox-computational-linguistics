@@ -6,7 +6,7 @@ import operator
 
 START = ('**start**', 'START')
 END = ('**end**', 'END')
-EPS = 1e-16
+EPS = 1e-32
 
 def _is_num(s):
     try:
@@ -29,8 +29,7 @@ def _normalize(counts):
             total += counts[key1][key2]
 
         for key2 in counts[key1]:
-            if total > 0:
-                counts[key1][key2] /= total
+            counts[key1][key2] /= total
     return
 
 
@@ -53,7 +52,7 @@ def parse(docs):
                     continue
                 parts = [item.strip().rsplit('/', 1) for item in line.split()]
                 for p in parts:
-                    if _is_num(p[0]):
+                    if p[1] == 'CD':
                         p[0] = '__num__'
                     seq.append(tuple(p))
 
@@ -87,27 +86,30 @@ def counter(parsed):
         for c2 in atoms:
             transition[c1][c2] = 1.
 
-    for c in atoms:
-        for v in vocabulary:
-            if (v, c) == START or (v, c) == END:
-                emission[c][v] = 1.
-                continue
-            if v == START[0] or v == END[0]:
-                emission[c][v] = EPS
-                continue
-            emission[c][v] = 1.
-
     # No tag transit from END or to START.
     for c in atoms:
         transition[END[1]][c] = EPS
         transition[c][START[1]] = EPS
+
+    # for c in atoms:
+    #     for v in vocabulary:
+    #         if (v, c) == START or (v, c) == END:
+    #             emission[c][v] = 1.
+    #             continue
+    #         if v == START[0] or v == END[0]:
+    #             emission[c][v] = EPS
+    #             continue
+    #         emission[c][v] = 1.
 
     for seq in parsed:
         for i in xrange(len(seq)):
             # record emission count for ith part.
             tags = seq[i][1].split('|')
             for tag in tags:
-                emission[tag][seq[i][0].lower()] += 1
+                s = seq[i][0].lower()
+                if s not in emission[tag]:
+                    emission[tag][s] = 0
+                emission[tag][s] += 1
 
             if i == 0:
                 continue
