@@ -6,7 +6,36 @@ import operator
 
 START = ('**start**', 'START')
 END = ('**end**', 'END')
-EPS = 1e-64
+EPS = 1e-128
+
+word2id = dict()
+id2word = dict()
+tag2id = dict()
+id2tag = dict()
+
+word2id[START[0]] = len(word2id)
+word2id[END[0]] = len(word2id)
+tag2id[START[1]] = len(tag2id)
+tag2id[END[1]] = len(tag2id)
+
+START = (word2id[START[0]], tag2id[START[1]])
+END = (word2id[END[0]], tag2id[END[1]])
+
+id2word[START[0]] = '**start**'
+id2word[END[0]] = '**end**'
+id2tag[START[1]] = 'START'
+id2tag[END[1]] = 'END'
+
+def _fill_dicts(word, tag):
+    if not word in word2id:
+        word2id[word] = len(word2id)
+        id2word[word2id[word]] = word
+    if not tag in tag2id:
+        tag2id[tag] = len(tag2id)
+        id2tag[tag2id[tag]] = tag
+    assert len(word2id) == len(id2word)
+    assert len(tag2id) == len(id2tag)
+    return word2id[word], tag2id[tag]
 
 def _is_num(s):
     try:
@@ -18,8 +47,8 @@ def _is_num(s):
 def _atomize(categories):
     atoms = set([])
     for c in categories:
-        for s in c.split('|'):
-            atoms.add(s)
+        for s in id2tag[c].split('|'):
+            atoms.add(tag2id[s])
     return atoms
 
 def _normalize(counts):
@@ -54,7 +83,8 @@ def parse(docs):
                 for p in parts:
                     if p[1] == 'CD':
                         p[0] = '__num__'
-                    seq.append((p[0].lower(), p[1]))
+                    id_word, id_tag = _fill_dicts(p[0], p[1])
+                    seq.append((id_word, id_tag))
 
                     # End of sequence.
                     if p[0] in ['.', '?', '!']:
@@ -91,33 +121,24 @@ def counter(parsed):
         transition[END[1]][c] = EPS
         transition[c][START[1]] = EPS
 
-    # for c in atoms:
-    #     for v in vocabulary:
-    #         if (v, c) == START or (v, c) == END:
-    #             emission[c][v] = 1.
-    #             continue
-    #         if v == START[0] or v == END[0]:
-    #             emission[c][v] = EPS
-    #             continue
-    #         emission[c][v] = 1.
-
     for seq in parsed:
         for i in xrange(len(seq)):
             # record emission count for ith part.
-            tags = seq[i][1].split('|')
+            tags = id2tag[seq[i][1]].split('|')
             for tag in tags:
                 s = seq[i][0]
-                if s not in emission[tag]:
-                    emission[tag][s] = 0
-                emission[tag][s] += 1
+                if s not in emission[tag2id[tag]]:
+                    emission[tag2id[tag]][s] = 0
+                emission[tag2id[tag]][s] += 1
 
             if i == 0:
                 continue
-            tags_prev = seq[i-1][1].split('|')
+
+            tags_prev = id2tag[seq[i-1][1]].split('|')
             # trainsition count from t1 to t2.
             for t1 in tags_prev:
                 for t2 in tags:
-                    transition[t1][t2] += 1
+                    transition[tag2id[t1]][tag2id[t2]] += 1
 
     _normalize(emission)
     _normalize(transition)
@@ -130,5 +151,5 @@ if __name__ == '__main__':
     docs = glob(path)
     parsed = parse(docs)
     emission, transition = counter(parsed)
-    sorted_ = sorted(transition['START'].items(), key=operator.itemgetter(1))
+    sorted_ = sorted(transition[tag2id['START']].items(), key=operator.itemgetter(1))
     print sorted_

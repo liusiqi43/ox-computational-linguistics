@@ -3,6 +3,8 @@ from viterbi import viterbi
 
 import numpy as np
 
+DEBUG = False
+
 def _strip_pos(seq):
     return [part[0] for part in seq]
 
@@ -20,6 +22,9 @@ def _compare(s1, s2):
     for i in xrange(len(s1)):
         if s1[i] == s2[i]:
             count_ok += 1
+        elif DEBUG:
+            print s1, '\n!=\n', s2
+            print s1[i], '\n!=\n', s2[i], '\n'
     return count_ok, len(s1)
 
 def _counter_known(parsed, train, known):
