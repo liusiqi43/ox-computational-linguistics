@@ -1,12 +1,15 @@
+from __future__ import division
+
 from glob import glob
 from collections import defaultdict
 from string import maketrans
 
 import operator
+import copy
 
 START = ('**start**', 'START')
 END = ('**end**', 'END')
-EPS = 1e-128
+EPS = 1e-32
 
 word2id = dict()
 id2word = dict()
@@ -45,20 +48,20 @@ def _is_num(s):
         return False
 
 def _atomize(categories):
-    atoms = set([])
-    for c in categories:
+    atoms = defaultdict(int)
+    for c in categories.keys():
         for s in id2tag[c].split('|'):
-            atoms.add(tag2id[s])
+            atoms[tag2id[s]] += categories[c]
     return atoms
 
-def _normalize(counts):
+def _normalize(counts, discount = 0):
     for key1 in counts:
         total = 0.
         for key2 in counts[key1]:
             total += counts[key1][key2]
 
         for key2 in counts[key1]:
-            counts[key1][key2] /= total
+            counts[key1][key2] = max(counts[key1][key2] - discount, 0) / total
     return
 
 
@@ -98,20 +101,40 @@ def parse(docs):
             print 'extended', parsed[-1]
     return parsed
 
-def counter(parsed):
+def _kneser_ney_smoothing(bigram, unigram, discount):
+    pairs_count = 0
+
+    for fromtag in bigram:
+        for totag in bigram[fromtag]:
+            if bigram[fromtag][totag] > 1:
+                pairs_count += 1
+
+    _normalize(bigram, discount)
+
+    for fromtag in unigram:
+        for totag in unigram:
+            _lambda = (discount / unigram[fromtag]) * len(filter(lambda t: bigram[fromtag][t] > 1, bigram[fromtag]))
+            discounted = bigram[fromtag][totag]
+            bigram[fromtag][totag] = max(EPS, discounted + _lambda * sum([(bigram[t][totag] > 1) for t in bigram]) / pairs_count)
+    return bigram
+
+def counter(parsed, discount = 0.75):
     emission = defaultdict(dict)
     transition = defaultdict(dict)
 
-    categories = set((START[1], END[1]))
+    categories = {START[1] : 1, END[1] : 1}
     vocabulary = set((START[0], END[0]))
 
     for seq in parsed:
         for part in seq:
-            categories.add(part[1])
+            if part[1] not in categories:
+                categories[part[1]] = 0
+            categories[part[1]] += 1
             vocabulary.add(part[0])
 
     atoms = _atomize(categories)
-    # trainsition count from c1 to c2 with smoothing.
+
+    # Add one to avoid zeros.
     for c1 in atoms:
         for c2 in atoms:
             transition[c1][c2] = 1.
@@ -141,7 +164,9 @@ def counter(parsed):
                     transition[tag2id[t1]][tag2id[t2]] += 1
 
     _normalize(emission)
-    _normalize(transition)
+    # transition: bigram, categories: unigram.
+    _kneser_ney_smoothing(transition, atoms, discount)
+
 
     return emission, transition
 

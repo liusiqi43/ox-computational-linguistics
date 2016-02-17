@@ -1,4 +1,4 @@
-from parser import parse, counter
+from parser import parse, counter, id2tag
 from viterbi import viterbi
 
 import numpy as np
@@ -16,16 +16,16 @@ def _fold(parsed, k):
         yield parsed[:start] + parsed[start+fold_size:], parsed[start:start+fold_size]
         start += fold_size
 
-def _compare(s1, s2):
-    assert len(s1) == len(s2)
+def _compare(target, output):
+    assert len(target) == len(output)
     count_ok = 0
-    for i in xrange(len(s1)):
-        if s1[i] == s2[i]:
+    for i in xrange(len(target)):
+        if target[i][0] == output[i][0] and (id2tag[output[i][1]] in id2tag[target[i][1]].split('|')):
             count_ok += 1
         elif DEBUG:
-            print s1, '\n!=\n', s2
-            print s1[i], '\n!=\n', s2[i], '\n'
-    return count_ok, len(s1)
+            print target, '\n!=\n', output
+            print target[i], '\n!=\n', output[i], '\n'
+    return count_ok, len(target)
 
 def _counter_known(parsed, train, known):
     emission, transition = None, None
@@ -65,7 +65,7 @@ if __name__ == '__main__':
     np.random.seed(647)
     np.random.shuffle(parsed)
     k = 10
-    print k, 'fold validation known:'
-    k_fold_cross_valid_known(k, parsed, True)
     print k, 'fold validation unknown:'
     k_fold_cross_valid_known(k, parsed, False)
+    print k, 'fold validation known:'
+    k_fold_cross_valid_known(k, parsed, True)
