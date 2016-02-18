@@ -1,0 +1,46 @@
+# 10-fold CV with Kneser-Ney smoothing.
+10 fold validation unknown:
+train:  26442 test:  2937
+Fold accuracy:  0.950878081424
+train:  26442 test:  2937
+Fold accuracy:  0.950782433115
+train:  26442 test:  2937
+Fold accuracy:  0.949908692476
+train:  26442 test:  2937
+Fold accuracy:  0.949469755424
+train:  26442 test:  2937
+Fold accuracy:  0.953534256494
+train:  26442 test:  2937
+Fold accuracy:  0.95162929095
+train:  26442 test:  2937
+Fold accuracy:  0.951388762075
+train:  26442 test:  2937
+Fold accuracy:  0.952275685023
+train:  26442 test:  2937
+Fold accuracy:  0.951643713501
+train:  26442 test:  2937
+Fold accuracy:  0.950659439928
+Avg:  0.951217011041
+
+10 fold validation known:
+train:  26442 test:  2937
+Fold accuracy:  0.971369662332
+train:  26442 test:  2937
+Fold accuracy:  0.971352852095
+train:  26442 test:  2937
+Fold accuracy:  0.97061723886
+train:  26442 test:  2937
+Fold accuracy:  0.971720289257
+train:  26442 test:  2937
+Fold accuracy:  0.973427459499
+train:  26442 test:  2937
+Fold accuracy:  0.971514623703
+train:  26442 test:  2937
+Fold accuracy:  0.972480414894
+train:  26442 test:  2937
+Fold accuracy:  0.972509938852
+train:  26442 test:  2937
+Fold accuracy:  0.97096439682
+train:  26442 test:  2937
+Fold accuracy:  0.972393857272
+Avg:  0.971835073358
