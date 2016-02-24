@@ -3,6 +3,7 @@ from __future__ import division
 from glob import glob
 from collections import defaultdict
 from string import maketrans
+from copy import deepcopy
 
 import operator
 import copy
@@ -30,15 +31,15 @@ id2tag[START[1]] = 'START'
 id2tag[END[1]] = 'END'
 
 def _fill_dicts(word, tag):
-    if not word in word2id:
+    if word is not None and word not in word2id:
         word2id[word] = len(word2id)
         id2word[word2id[word]] = word
-    if not tag in tag2id:
+    if tag is not None and tag not in tag2id:
         tag2id[tag] = len(tag2id)
         id2tag[tag2id[tag]] = tag
     assert len(word2id) == len(id2word)
     assert len(tag2id) == len(id2tag)
-    return word2id[word], tag2id[tag]
+    return word2id[word] if word is not None else None, tag2id[tag] if tag is not None else None
 
 def _is_num(s):
     try:
@@ -47,12 +48,23 @@ def _is_num(s):
     except ValueError:
         return False
 
-def _atomize(categories):
-    atoms = defaultdict(int)
-    for c in categories.keys():
-        for s in id2tag[c].split('|'):
-            atoms[tag2id[s]] += categories[c]
-    return atoms
+def _split_tags(tag):
+    res = []
+    # t1|t2|t3-t4|t5|t6
+    # to t1-t4, t1-t5, t1-t6, t2-t4, t2-t5, t2-t6, t3-t4, t3-t5, t3-t6
+    tags = tag.split('-')
+    assert(len(tags) <= 2), tag + ' has more than 2 parts'
+    if len(tags) == 1:
+        return tags[0].split('|')
+    t1s = tags[0].split('|')
+    t2s = tags[1].split('|')
+    for t1 in t1s:
+        for t2 in t2s:
+            t = t1+'-'+t2
+            _fill_dicts(None, t)
+            res.append(t)
+    return res
+
 
 def _normalize(counts, discount = 0):
     for key1 in counts:
@@ -101,6 +113,27 @@ def parse(docs):
             print 'extended', parsed[-1]
     return parsed
 
+# returns (new) id for t1-t2 tag.
+def _combine_tag(t1, t2):
+    _, t = _fill_dicts(None, id2tag[t1]+'-'+id2tag[t2])
+    return t
+
+def trigramize(parsed):
+    trigram_parsed = []
+    for seq in parsed:
+        trigram_seq = []
+        # item = (word, tag)
+        for i, item in enumerate(seq):
+            # Don't change anything if it's the start tag.
+            if i == 0:
+                trigram_seq.append(item)
+                continue
+            # trigram_item = (word, prevtag-tag)
+            trigram_item = (item[0], _combine_tag(seq[i-1][1], item[1]))
+            trigram_seq.append(trigram_item)
+        trigram_parsed.append(trigram_seq)
+    return trigram_parsed
+
 def _kneser_ney_smoothing(bigram, unigram, discount):
     pairs_count = 0
 
@@ -127,27 +160,26 @@ def counter(parsed, discount = 0.75):
 
     for seq in parsed:
         for part in seq:
-            if part[1] not in categories:
-                categories[part[1]] = 0
-            categories[part[1]] += 1
             vocabulary.add(part[0])
-
-    atoms = _atomize(categories)
+            for tag in _split_tags(id2tag[part[1]]):
+                if tag not in categories:
+                    categories[tag2id[tag]] = 0
+                categories[tag2id[tag]] += 1
 
     # Add one to avoid zeros.
-    for c1 in atoms:
-        for c2 in atoms:
+    for c1 in categories:
+        for c2 in categories:
             transition[c1][c2] = 1.
 
     # No tag transit from END or to START.
-    for c in atoms:
+    for c in categories:
         transition[END[1]][c] = EPS
         transition[c][START[1]] = EPS
 
     for seq in parsed:
         for i in xrange(len(seq)):
             # record emission count for ith part.
-            tags = id2tag[seq[i][1]].split('|')
+            tags = _split_tags(id2tag[seq[i][1]])
             for tag in tags:
                 s = seq[i][0]
                 if s not in emission[tag2id[tag]]:
@@ -157,7 +189,7 @@ def counter(parsed, discount = 0.75):
             if i == 0:
                 continue
 
-            tags_prev = id2tag[seq[i-1][1]].split('|')
+            tags_prev = _split_tags(id2tag[seq[i-1][1]])
             # trainsition count from t1 to t2.
             for t1 in tags_prev:
                 for t2 in tags:
@@ -165,16 +197,19 @@ def counter(parsed, discount = 0.75):
 
     _normalize(emission)
     # transition: bigram, categories: unigram.
-    _kneser_ney_smoothing(transition, atoms, discount)
+    _kneser_ney_smoothing(transition, categories, discount)
 
 
     return emission, transition
+
+def translate_seq(seq):
+    return [(id2word[item[0]], id2tag[item[1]]) for item in seq]
 
 
 if __name__ == '__main__':
     path = '../WSJ-2-12/*/*.POS'
     docs = glob(path)
     parsed = parse(docs)
-    emission, transition = counter(parsed)
-    sorted_ = sorted(transition[tag2id['START']].items(), key=operator.itemgetter(1))
-    print sorted_
+    parsed = trigramize(parsed)
+    # emission, transition = counter(parsed)
+    print translate_seq(parsed[10])

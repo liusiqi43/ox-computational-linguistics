@@ -1,4 +1,4 @@
-from parser import parse, counter, id2tag
+from parser import parse, counter, id2tag, trigramize
 from viterbi import viterbi
 from collections import defaultdict
 
@@ -64,10 +64,12 @@ if __name__ == '__main__':
     docs = glob(path)
 
     parsed = parse(docs)
+    parsed = trigramize(parsed)
 
     np.random.seed(647)
     np.random.shuffle(parsed)
     k = 10
+    # Specify all discount factors to try.
     discounts = [0.85]
     print k, 'fold validation unknown:'
     k_fold_cross_valid_known(k, parsed, False, discounts)
