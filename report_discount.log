@@ -1,0 +1,44 @@
+10 fold validation unknown:
+train:  26442 test:  2937
+Fold accuracy:  0.950878081424 discount:  0.85
+train:  26442 test:  2937
+Fold accuracy:  0.950764404702 discount:  0.85
+train:  26442 test:  2937
+Fold accuracy:  0.949890430972 discount:  0.85
+train:  26442 test:  2937
+Fold accuracy:  0.949451811445 discount:  0.85
+train:  26442 test:  2937
+Fold accuracy:  0.953570458865 discount:  0.85
+train:  26442 test:  2937
+Fold accuracy:  0.951593003846 discount:  0.85
+train:  26442 test:  2937
+Fold accuracy:  0.951407023246 discount:  0.85
+train:  26442 test:  2937
+Fold accuracy:  0.952293512559 discount:  0.85
+train:  26442 test:  2937
+Fold accuracy:  0.951661906235 discount:  0.85
+train:  26442 test:  2937
+Fold accuracy:  0.950749774164 discount:  0.85
+discount: 0.85 -> avg: 0.951226040746
+10 fold validation known:
+train:  26442 test:  2937
+Fold accuracy:  0.97133349008 discount:  0.85
+train:  26442 test:  2937
+Fold accuracy:  0.971370880508 discount:  0.85
+train:  26442 test:  2937
+Fold accuracy:  0.97061723886 discount:  0.85
+train:  26442 test:  2937
+Fold accuracy:  0.971702345278 discount:  0.85
+train:  26442 test:  2937
+Fold accuracy:  0.973427459499 discount:  0.85
+train:  26442 test:  2937
+Fold accuracy:  0.971514623703 discount:  0.85
+train:  26442 test:  2937
+Fold accuracy:  0.972498676065 discount:  0.85
+train:  26442 test:  2937
+Fold accuracy:  0.972527766388 discount:  0.85
+train:  26442 test:  2937
+Fold accuracy:  0.970982589554 discount:  0.85
+train:  26442 test:  2937
+Fold accuracy:  0.972448057814 discount:  0.85
+discount: 0.85 -> avg: 0.971842312775
