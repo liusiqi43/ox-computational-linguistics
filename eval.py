@@ -21,7 +21,11 @@ def _compare(target, output):
     assert len(target) == len(output)
     count_ok = 0
     for i in xrange(len(target)):
-        if target[i][0] == output[i][0] and (id2tag[output[i][1]] in id2tag[target[i][1]].split('|')):
+        assert(target[i][0] == output[i][0]), 'input words changed.' + str(target) + str(output)
+        # keep only the last (current) tag. Consider DET-NNP, VBN-NNP correct labelling.
+        output_tag = id2tag[output[i][1]].split('-')[-1]
+        target_tags = id2tag[target[i][1]].split('-')[-1].split('|')
+        if output_tag in target_tags:
             count_ok += 1
         elif DEBUG:
             print target, '\n!=\n', output
@@ -47,11 +51,11 @@ def k_fold_cross_valid_known(k, parsed, known, discounts):
 
             count_ok, count_total = 0., 0.
             for i, seq in enumerate(test):
-                print 'evaluating', i, 'th sentence.'
                 stripped_seq = _strip_pos(seq)
                 out = viterbi(stripped_seq, transition, emission)
                 ok, total = _compare(seq[1:-1], out)
                 count_ok += ok; count_total += total
+                print 'evaluating', i, 'th sentence.', count_ok/count_total, 'so far.'
             res[discount].append(count_ok/count_total)
             print 'Fold accuracy: ', res[discount][-1], 'discount: ', discount
     for d in res:

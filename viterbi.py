@@ -13,6 +13,8 @@ def viterbi(seq, transition, emission):
     scores = np.zeros((len(transition), len(seq)))
     backpointer = np.zeros((len(transition), len(seq)), dtype=int)
 
+    # If word is unknown in emission, assign it to the unknown element, which has emission EPS.
+    seq[0] = min(seq[0], emission.shape[1])
     scores[:, 0] = np.log(transition[START[1]][:]) + np.log(emission[:, seq[0]])
     for j in xrange(1, len(seq)):
         for i in xrange(len(transition)):
