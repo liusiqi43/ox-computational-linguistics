@@ -6,6 +6,7 @@ from string import maketrans
 from copy import deepcopy
 
 import operator
+import numpy as np
 import copy
 
 START = ('**start**', 'START')
@@ -67,6 +68,10 @@ def _split_tags(tag):
 
 
 def _normalize(counts, discount = 0):
+    if isinstance(counts, np.ndarray):
+        total = np.sum(counts, 1)
+        counts = np.maximum(counts - discount, 0) / total[:, None]
+        return counts
     for key1 in counts:
         total = 0.
         for key2 in counts[key1]:
@@ -74,8 +79,7 @@ def _normalize(counts, discount = 0):
 
         for key2 in counts[key1]:
             counts[key1][key2] = max(counts[key1][key2] - discount, 0) / total
-    return
-
+    return counts
 
 def parse(docs):
     parsed = []
@@ -135,25 +139,18 @@ def trigramize(parsed):
     return trigram_parsed
 
 def _kneser_ney_smoothing(bigram, unigram, discount):
-    pairs_count = 0
+    pairs_count = np.sum(bigram * (bigram > 1))
 
-    for fromtag in bigram:
-        for totag in bigram[fromtag]:
-            if bigram[fromtag][totag] > 1:
-                pairs_count += 1
-
-    _normalize(bigram, discount)
+    bigram = _normalize(bigram, discount)
 
     for fromtag in unigram:
         for totag in unigram:
-            _lambda = (discount / unigram[fromtag]) * len(filter(lambda t: bigram[fromtag][t] > 1, bigram[fromtag]))
-            discounted = bigram[fromtag][totag]
-            bigram[fromtag][totag] = max(EPS, discounted + _lambda * sum([(bigram[t][totag] > 1) for t in bigram]) / pairs_count)
-    return bigram
+            _lambda = (discount / unigram[fromtag]) * np.sum(bigram[fromtag, :] > 1)
+            bigram[fromtag, totag] = bigram[fromtag, totag] + _lambda * np.sum(bigram[:, totag] > 1)
+    return np.maximum(bigram, EPS) / pairs_count
 
 def counter(parsed, discount = 0.75):
-    emission = defaultdict(dict)
-    transition = defaultdict(dict)
+    print 'counting emission/transition matrices.'
 
     categories = {START[1] : 1, END[1] : 1}
     vocabulary = set((START[0], END[0]))
@@ -166,25 +163,21 @@ def counter(parsed, discount = 0.75):
                     categories[tag2id[tag]] = 0
                 categories[tag2id[tag]] += 1
 
-    # Add one to avoid zeros.
-    for c1 in categories:
-        for c2 in categories:
-            transition[c1][c2] = 1.
-
+    max_id = len(tag2id)
+    # Add one to all transitions.
+    transition = np.ones((max_id, max_id))
     # No tag transit from END or to START.
-    for c in categories:
-        transition[END[1]][c] = EPS
-        transition[c][START[1]] = EPS
+    transition[END[1], :] = EPS
+    transition[:, START[1]] = EPS
 
+    emission = np.zeros((max_id, len(word2id)+1)) + EPS
     for seq in parsed:
         for i in xrange(len(seq)):
             # record emission count for ith part.
             tags = _split_tags(id2tag[seq[i][1]])
             for tag in tags:
                 s = seq[i][0]
-                if s not in emission[tag2id[tag]]:
-                    emission[tag2id[tag]][s] = 0
-                emission[tag2id[tag]][s] += 1
+                emission[tag2id[tag], s] += 1
 
             if i == 0:
                 continue
@@ -193,23 +186,21 @@ def counter(parsed, discount = 0.75):
             # trainsition count from t1 to t2.
             for t1 in tags_prev:
                 for t2 in tags:
-                    transition[tag2id[t1]][tag2id[t2]] += 1
+                    transition[tag2id[t1], tag2id[t2]] += 1
 
-    _normalize(emission)
+    emission = _normalize(emission)
     # transition: bigram, categories: unigram.
-    _kneser_ney_smoothing(transition, categories, discount)
-
-
+    transition = _kneser_ney_smoothing(transition, categories, discount)
+    print 'done.'
     return emission, transition
 
 def translate_seq(seq):
     return [(id2word[item[0]], id2tag[item[1]]) for item in seq]
-
 
 if __name__ == '__main__':
     path = '../WSJ-2-12/*/*.POS'
     docs = glob(path)
     parsed = parse(docs)
     parsed = trigramize(parsed)
-    # emission, transition = counter(parsed)
+    emission, transition = counter(parsed)
     print translate_seq(parsed[10])

@@ -46,7 +46,8 @@ def k_fold_cross_valid_known(k, parsed, known, discounts):
             emission, transition = _counter_known(parsed, train, known, discount)
 
             count_ok, count_total = 0., 0.
-            for seq in test:
+            for i, seq in enumerate(test):
+                print 'evaluating', i, 'th sentence.'
                 stripped_seq = _strip_pos(seq)
                 out = viterbi(stripped_seq, transition, emission)
                 ok, total = _compare(seq[1:-1], out)
