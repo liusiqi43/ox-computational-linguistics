@@ -1,5 +1,6 @@
 from parser import parse, counter, id2tag
 from viterbi import viterbi
+from collections import defaultdict
 
 import numpy as np
 
@@ -27,31 +28,33 @@ def _compare(target, output):
             print target[i], '\n!=\n', output[i], '\n'
     return count_ok, len(target)
 
-def _counter_known(parsed, train, known):
+def _counter_known(parsed, train, known, discount):
     emission, transition = None, None
     if known:
-        emission, _ = counter(parsed)
-        _, transition = counter(train)
+        emission, _ = counter(parsed, discount)
+        _, transition = counter(train, discount)
     else:
-        emission, transition = counter(train)
+        emission, transition = counter(train, discount)
 
     return emission, transition
 
-def k_fold_cross_valid_known(k, parsed, known):
-    res = []
+def k_fold_cross_valid_known(k, parsed, known, discounts):
+    res = defaultdict(list)
     for train, test in _fold(parsed, k):
-        print 'train: ', len(train), 'test: ', len(test)
-        emission, transition = _counter_known(parsed, train, known)
+        for discount in discounts:
+            print 'train: ', len(train), 'test: ', len(test)
+            emission, transition = _counter_known(parsed, train, known, discount)
 
-        count_ok, count_total = 0., 0.
-        for seq in test:
-            stripped_seq = _strip_pos(seq)
-            out = viterbi(stripped_seq, transition, emission)
-            ok, total = _compare(seq[1:-1], out)
-            count_ok += ok; count_total += total
-        res.append(count_ok/count_total)
-        print 'Fold accuracy: ', res[-1]
-    print 'Avg: ', np.mean(res)
+            count_ok, count_total = 0., 0.
+            for seq in test:
+                stripped_seq = _strip_pos(seq)
+                out = viterbi(stripped_seq, transition, emission)
+                ok, total = _compare(seq[1:-1], out)
+                count_ok += ok; count_total += total
+            res[discount].append(count_ok/count_total)
+            print 'Fold accuracy: ', res[discount][-1], 'discount: ', discount
+    for d in res:
+        print 'discount:', d, '->', 'avg:', np.mean(res[d])
 
 
 if __name__ == '__main__':
@@ -65,7 +68,8 @@ if __name__ == '__main__':
     np.random.seed(647)
     np.random.shuffle(parsed)
     k = 10
+    discounts = [0.85]
     print k, 'fold validation unknown:'
-    k_fold_cross_valid_known(k, parsed, False)
+    k_fold_cross_valid_known(k, parsed, False, discounts)
     print k, 'fold validation known:'
-    k_fold_cross_valid_known(k, parsed, True)
+    k_fold_cross_valid_known(k, parsed, True, discounts)
