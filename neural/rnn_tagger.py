@@ -67,8 +67,10 @@ class RNNTagger(object):
     inputs = [tf.squeeze(input_, [1])
               for input_ in tf.split(1, self._num_steps, inputs)]
     if is_training and self._dropout_keep_prob < 1:
-        inputs = tf.nn.dropout(inputs, self._dropout_keep_prob)
-    outputs, state = rnn.rnn(cell, inputs, initial_state=self._initial_state)
+        inputs = tf.nn.dropout(tf.pack(inputs), self._dropout_keep_prob)
+        outputs, state = rnn.rnn(cell, tf.unpack(inputs), initial_state=self._initial_state)
+    else:
+        outputs, state = rnn.rnn(cell, inputs, initial_state=self._initial_state)
 
     output = tf.reshape(tf.concat(1, outputs), [-1, self._hidden_size])
     self._output_shape = tf.shape(output)
@@ -84,8 +86,6 @@ class RNNTagger(object):
 
     pred = tf.argmax(logits, 1)
     labels = tf.cast(tf.reshape(self._targets, [-1]), tf.int64)
-    self._pred = pred
-    self._labels = tf.cast(tf.equal(pred, labels), tf.float32)
     self._misclass = 1 - tf.reduce_mean(tf.cast(tf.equal(pred, labels), tf.float32))
 
     if not is_training:
