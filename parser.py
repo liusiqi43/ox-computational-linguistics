@@ -163,14 +163,19 @@ def counter(parsed, discount = 0.75):
                     categories[tag2id[tag]] = 0
                 categories[tag2id[tag]] += 1
 
-    max_id = len(tag2id)
     # Add one to all transitions.
-    transition = np.ones((max_id, max_id))
+    transition = np.ones((len(tag2id), len(tag2id)))
     # No tag transit from END or to START.
     transition[END[1], :] = EPS
     transition[:, START[1]] = EPS
 
-    emission = np.zeros((max_id, len(word2id)+1)) + EPS
+    # Demoting bigram tag.
+    for tag in tag2id:
+        if '-' not in tag:
+            transition[:, tag2id[tag]] = EPS
+
+
+    emission = np.zeros((len(tag2id), len(word2id)+1)) + EPS
     for seq in parsed:
         for i in xrange(len(seq)):
             # record emission count for ith part.

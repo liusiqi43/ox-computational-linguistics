@@ -1,6 +1,6 @@
 import numpy as np
 
-from parser import EPS, START, END, counter, parse, trigramize, word2id, translate_seq
+from parser import EPS, START, END, counter, parse, trigramize, word2id, translate_seq, id2tag
 from glob import glob
 
 ####

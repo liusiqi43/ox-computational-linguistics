@@ -1,4 +1,4 @@
-from parser import parse, counter, id2tag, trigramize
+from parser import parse, counter, id2tag, trigramize, translate_seq
 from viterbi import viterbi
 from collections import defaultdict
 
@@ -28,8 +28,7 @@ def _compare(target, output):
         if output_tag in target_tags:
             count_ok += 1
         elif DEBUG:
-            print target, '\n!=\n', output
-            print target[i], '\n!=\n', output[i], '\n'
+            print translate_seq([target[i]]), '\n!=\n', translate_seq([output[i]])
     return count_ok, len(target)
 
 def _counter_known(parsed, train, known, discount):
@@ -55,7 +54,8 @@ def k_fold_cross_valid_known(k, parsed, known, discounts):
                 out = viterbi(stripped_seq, transition, emission)
                 ok, total = _compare(seq[1:-1], out)
                 count_ok += ok; count_total += total
-                print 'evaluating', i, 'th sentence.', count_ok/count_total, 'so far.'
+                if DEBUG:
+                    print 'evaluating', i, 'th sentence.', count_ok/count_total, 'so far.'
             res[discount].append(count_ok/count_total)
             print 'Fold accuracy: ', res[discount][-1], 'discount: ', discount
     for d in res:
