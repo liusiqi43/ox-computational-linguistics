@@ -21,11 +21,11 @@ tf.flags.DEFINE_float("lr_decay", 0.5, "LR decay.")
 tf.flags.DEFINE_float("max_grad_norm", 5.0, "Maximum gradient norm.")
 tf.flags.DEFINE_integer("batch_size", 32, "Batch Size.")
 tf.flags.DEFINE_integer("tsne_size", 1000, "Size of the sample to plot tSNE visualisation.")
-tf.flags.DEFINE_integer("embedding_dim", 200, "Dimensionality of character embedding.")
-tf.flags.DEFINE_integer("hidden_size", 200, "Hidden size of LSTM cell.")
+tf.flags.DEFINE_integer("hidden_size", 128,
+                        "Dimensionality of character embedding and lstm hidden size.")
 tf.flags.DEFINE_integer("max_epoch", 4, "Max number of training epochs before LR decay.")
 tf.flags.DEFINE_integer("max_max_epoch", 13, "Stop after max_max_epoch epochs.")
-tf.flags.DEFINE_integer("num_steps", 15, "Sequence length of RNN.")
+tf.flags.DEFINE_integer("num_layers", 3, "Number of stacked RNN layers.")
 
 FLAGS = tf.flags.FLAGS
 
@@ -33,39 +33,36 @@ FLAGS = tf.flags.FLAGS
 class BiRNNTagger(object):
   """The RNN POS tagger model."""
 
-  def __init__(self, is_training, vocab_size, tag_size):
+  def __init__(self, is_training, vocab_size, tag_size, maxlen):
     self._batch_size = FLAGS.batch_size
-    self._num_steps = FLAGS.num_steps
     self._hidden_size = FLAGS.hidden_size
-    self._embedding_dim = FLAGS.embedding_dim
+    self._num_layers = FLAGS.num_layers
     self._dropout_keep_prob = FLAGS.dropout_keep_prob
     self._vocab_size = vocab_size
     self._tag_size = tag_size
     self._is_training = is_training
 
-    self._input_data = tf.placeholder(tf.int32, [self._batch_size, self._num_steps])
-    self._targets = tf.placeholder(tf.int32, [self._batch_size, self._num_steps])
+    self._input_data = tf.placeholder(tf.int32, [self._batch_size, maxlen])
+    self._targets = tf.placeholder(tf.int32, [self._batch_size, maxlen])
+    self._mask = tf.placeholder(tf.bool, [self._batch_size, maxlen])
 
-    cell_fw = tf.nn.rnn_cell.LSTMCell(self._hidden_size, self._embedding_dim)
-    cell_bw = tf.nn.rnn_cell.LSTMCell(self._hidden_size, self._embedding_dim)
+    lstm_cell = tf.nn.rnn_cell.LSTMCell(self._hidden_size, self._hidden_size)
     if is_training and self._dropout_keep_prob < 1:
-        cell_fw = tf.nn.rnn_cell.DropoutWrapper(
-            cell_fw, output_keep_prob=self._dropout_keep_prob)
-        cell_bw = tf.nn.rnn_cell.DropoutWrapper(
-            cell_bw, output_keep_prob=self._dropout_keep_prob)
+        lstm_cell = tf.nn.rnn_cell.DropoutWrapper(
+            lstm_cell, output_keep_prob=self._dropout_keep_prob)
 
-    self._initial_state_fw = cell_fw.zero_state(self._batch_size,
-                                                     tf.float32)
-    self._initial_state_bw = cell_bw.zero_state(self._batch_size,
-                                                     tf.float32)
+    cell_fw = tf.nn.rnn_cell.MultiRNNCell([lstm_cell] * self._num_layers)
+    cell_bw = tf.nn.rnn_cell.MultiRNNCell([lstm_cell] * self._num_layers)
+
+    self._initial_state_fw = cell_fw.zero_state(self._batch_size, tf.float32)
+    self._initial_state_bw = cell_bw.zero_state(self._batch_size, tf.float32)
 
     with tf.device("/cpu:0"):
       self._embedding = tf.get_variable("embedding", [self._vocab_size,
-                                                      self._embedding_dim])
+                                                      self._hidden_size])
       inputs = tf.nn.embedding_lookup(self._embedding, self._input_data)
 
-    inputs = [tf.squeeze(input_, [1])
-              for input_ in tf.split(1, self._num_steps, inputs)]
+    inputs = [input_ for input_ in tf.unpack(tf.transpose(inputs, [1, 0, 2]))]
     if is_training and self._dropout_keep_prob < 1:
         inputs = tf.nn.dropout(tf.pack(inputs), self._dropout_keep_prob)
         inputs = tf.unpack(inputs)
@@ -80,12 +77,13 @@ class BiRNNTagger(object):
     loss = tf.nn.seq2seq.sequence_loss_by_example(
         [logits],
         [tf.reshape(self._targets, [-1])],
-        [tf.ones([self._batch_size * self._num_steps])], self._tag_size)
+        [tf.reshape(tf.cast(self._mask, tf.float32), [-1])], self._tag_size)
     self._cost = cost = tf.reduce_sum(loss) / self._batch_size
 
-    pred = tf.argmax(logits, 1)
-    labels = tf.cast(tf.reshape(self._targets, [-1]), tf.int64)
-    self._misclass = 1 - tf.reduce_mean(tf.cast(tf.equal(pred, labels), tf.float32))
+    equality = tf.equal(tf.argmax(logits, 1),
+                        tf.cast(tf.reshape(self._targets, [-1]), tf.int64))
+    masked = tf.boolean_mask(equality, tf.reshape(self.mask, [-1]))
+    self._misclass = 1 - tf.reduce_mean(tf.cast(masked, tf.float32))
 
     if not is_training:
       return
@@ -103,6 +101,10 @@ class BiRNNTagger(object):
   @property
   def input_data(self):
     return self._input_data
+
+  @property
+  def mask(self):
+    return self._mask
 
   @property
   def targets(self):
@@ -129,10 +131,6 @@ class BiRNNTagger(object):
     return self._train_op
 
   @property
-  def num_steps(self):
-    return self._num_steps
-
-  @property
   def batch_size(self):
     return self._batch_size
 
@@ -140,20 +138,20 @@ class BiRNNTagger(object):
   def misclass(self):
     return self._misclass
 
-def run_epoch(session, m, x_data, y_data, eval_op, verbose=False):
+def run_epoch(session, m, x_data, y_data, mask, eval_op, verbose=False):
   """Runs the model on the given data."""
-  epoch_size = ((len(x_data) // m.batch_size) - 1) // m.num_steps
+  epoch_size = ((len(x_data) // m.batch_size) - 1)
   start_time = time.time()
   costs = 0.0
   iters = 0
   misclass_ = []
-  for step, (x, y) in enumerate(Reader.iterator(x_data, y_data, m.batch_size, m.num_steps)):
+  for step, (x, y, mask) in enumerate(Reader.iterator(x_data, y_data, mask, m.batch_size)):
       cost, misclass, _ = session.run([m.cost, m.misclass, eval_op],
-                                      {m.input_data: x, m.targets: y})
+                                      {m.input_data: x, m.targets: y, m.mask: mask})
       costs += cost
-      iters += m.num_steps
+      iters += m.batch_size
 
-      if verbose and step % (epoch_size // 10) == 10:
+      if verbose and step % (epoch_size // 10) == 0:
           print("[%s] %.3f perplexity: %.3f misclass:%.3f speed: %.0f wps" %
                 ('train' if m.is_training else 'test', step * 1.0 / epoch_size,
                  np.exp(costs / iters), misclass,
@@ -168,19 +166,21 @@ def main(unused_args):
     print("")
 
     reader = Reader(split = 0.9)
-    x_train, y_train, x_test, y_test = reader.get_data(glob('../../WSJ-2-12/*/*.POS'))
+    (x_train, y_train, mask_train,
+     x_test, y_test, mask_test) = reader.get_data(glob('../../WSJ-2-12/*/*.POS'))
+    print('len(x_train)', len(x_train), 'len(x_test)', len(x_test))
+    print('reader.ignore_ids', reader.ignore_ids)
     print('len(reader.word_to_id)',len(reader.word_to_id),
           'len(reader.tag_to_id)', len(reader.tag_to_id))
-    print('len(x_train)',len(x_train),
-          'len(x_test)', len(x_test))
     best_misclass = 1.0
 
     with tf.Graph().as_default(), tf.Session() as session:
         initializer = tf.random_uniform_initializer(-FLAGS.init_scale, FLAGS.init_scale)
         with tf.variable_scope("model", reuse=None, initializer=initializer):
-            m = BiRNNTagger(True, len(reader.word_to_id), len(reader.tag_to_id))
+            m = BiRNNTagger(True, len(reader.word_to_id), len(reader.tag_to_id), reader.maxlen)
         with tf.variable_scope("model", reuse=True, initializer=initializer):
-            mtest = BiRNNTagger(False, len(reader.word_to_id), len(reader.tag_to_id))
+            mtest = BiRNNTagger(False, len(reader.word_to_id), len(reader.tag_to_id),
+                                reader.maxlen)
 
         tf.initialize_all_variables().run()
 
@@ -190,12 +190,13 @@ def main(unused_args):
             m.assign_lr(session, FLAGS.learning_rate * lr_decay)
 
             print("Epoch: %d Learning rate: %.3f" % (i + 1, session.run(m.lr)))
-            train_perplexity, _ = run_epoch(session, m, x_train, y_train,
+            train_perplexity, _ = run_epoch(session, m, x_train, y_train, mask_train,
                                             m.train_op, verbose=True)
-            _, misclass = run_epoch(session, mtest, x_test, y_test, tf.no_op(), verbose=True)
+            _, misclass = run_epoch(session, mtest, x_test, y_test, mask_test,
+                                    tf.no_op(), verbose=True)
             if misclass < best_misclass:
                 best_misclass = misclass
-                fname = 'models/dropout_bidrnn_tagger_' + str(best_misclass)
+                fname = 'models/dropout_bid3rnn_tagger_' + str(best_misclass)
                 saver.save(session, fname, global_step=i)
                 print('saving', fname)
 

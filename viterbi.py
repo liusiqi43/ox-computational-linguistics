@@ -1,21 +1,21 @@
 import numpy as np
 
-from parser import EPS, START, END, counter, parse, trigramize, word2id, translate_seq, id2tag
+from parser import START, counter, parse, trigramize, id_to_token, build_dict
 from glob import glob
 
 ####
 # seq: ['**start**', 'we', 'are', 'drinking', 'milktea', '**end**']
 ####
-def viterbi(seq, transition, emission):
-    assert seq[0] == START[0] and seq[-1] == END[0], seq
+def viterbi(seq, transition, emission, word2id, tag2id):
+    assert seq[0] == START, seq
+    seq = [word2id[part[0]] if part[0] in word2id else len(word2id) for part in seq]
     seq = seq[1:]
 
     scores = np.zeros((len(transition), len(seq)))
     backpointer = np.zeros((len(transition), len(seq)), dtype=int)
 
-    # If word is unknown in emission, assign it to the unknown element, which has emission EPS.
-    seq[0] = min(seq[0], emission.shape[1])
-    scores[:, 0] = np.log(transition[START[1]][:]) + np.log(emission[:, seq[0]])
+    assert tag2id[START[1]] == 0
+    scores[:, 0] = np.log(transition[tag2id[START[1]], :]) + np.log(emission[:, seq[0]])
     for j in xrange(1, len(seq)):
         for i in xrange(len(transition)):
             k_score = scores[:, j-1] + np.log(transition[:, i]) + np.log(emission[i, seq[j]])
@@ -39,9 +39,10 @@ if __name__ == '__main__':
 
     np.random.shuffle(parsed)
     parsed = trigramize(parsed)
-    emission, transition = counter(parsed[:-10])
-
-    test_seq = [part[0] for part in parsed[-1]]
-    print 'test POS', translate_seq(parsed[-1][1:-1])
-    output = viterbi(test_seq, transition, emission)
-    print 'TAGGED', translate_seq(output)
+    tag2id, word2id = build_dict(parsed[:-10])
+    id2word = {v:k for k, v in word2id.iteritems()}
+    id2tag = {v:k for k, v in tag2id.iteritems()}
+    emission, transition = counter(parsed[:-10], tag2id, word2id)
+    print 'test POS', parsed[-1][1:-1]
+    output = viterbi(parsed[-1], transition, emission, word2id, tag2id)
+    print 'TAGGED', id_to_token(output, id2word, id2tag)

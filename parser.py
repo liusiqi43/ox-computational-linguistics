@@ -13,42 +13,6 @@ START = ('**start**', 'START')
 END = ('**end**', 'END')
 EPS = 1e-32
 
-word2id = dict()
-id2word = dict()
-tag2id = dict()
-id2tag = dict()
-
-word2id[START[0]] = len(word2id)
-word2id[END[0]] = len(word2id)
-tag2id[START[1]] = len(tag2id)
-tag2id[END[1]] = len(tag2id)
-
-START = (word2id[START[0]], tag2id[START[1]])
-END = (word2id[END[0]], tag2id[END[1]])
-
-id2word[START[0]] = '**start**'
-id2word[END[0]] = '**end**'
-id2tag[START[1]] = 'START'
-id2tag[END[1]] = 'END'
-
-def _fill_dicts(word, tag):
-    if word is not None and word not in word2id:
-        word2id[word] = len(word2id)
-        id2word[word2id[word]] = word
-    if tag is not None and tag not in tag2id:
-        tag2id[tag] = len(tag2id)
-        id2tag[tag2id[tag]] = tag
-    assert len(word2id) == len(id2word)
-    assert len(tag2id) == len(id2tag)
-    return word2id[word] if word is not None else None, tag2id[tag] if tag is not None else None
-
-def _is_num(s):
-    try:
-        float(s)
-        return True
-    except ValueError:
-        return False
-
 def _split_tags(tag):
     res = []
     # t1|t2|t3-t4|t5|t6
@@ -62,29 +26,18 @@ def _split_tags(tag):
     for t1 in t1s:
         for t2 in t2s:
             t = t1+'-'+t2
-            _fill_dicts(None, t)
             res.append(t)
     return res
 
 
 def _normalize(counts, discount = 0):
-    if isinstance(counts, np.ndarray):
-        total = np.sum(counts, 1)
-        counts = np.maximum(counts - discount, 0) / total[:, None]
-        return counts
-    for key1 in counts:
-        total = 0.
-        for key2 in counts[key1]:
-            total += counts[key1][key2]
-
-        for key2 in counts[key1]:
-            counts[key1][key2] = max(counts[key1][key2] - discount, 0) / total
+    total = np.sum(counts, 1)
+    counts = np.maximum(counts - discount, 0) / total[:, None]
     return counts
 
 def parse(docs):
     parsed = []
     for doc in docs:
-        print doc
         with open(doc, 'r') as f:
             seq = [START]
             for line in f:
@@ -102,8 +55,7 @@ def parse(docs):
                 for p in parts:
                     if p[1] == 'CD':
                         p[0] = '__num__'
-                    id_word, id_tag = _fill_dicts(p[0], p[1])
-                    seq.append((id_word, id_tag))
+                    seq.append(p)
 
                     # End of sequence.
                     if p[0] in ['.', '?', '!']:
@@ -117,95 +69,133 @@ def parse(docs):
             print 'extended', parsed[-1]
     return parsed
 
-# returns (new) id for t1-t2 tag.
-def _combine_tag(t1, t2):
-    _, t = _fill_dicts(None, id2tag[t1]+'-'+id2tag[t2])
-    return t
-
 def trigramize(parsed):
     trigram_parsed = []
     for seq in parsed:
         trigram_seq = []
         # item = (word, tag)
-        for i, item in enumerate(seq):
+        for i in xrange(len(seq)):
             # Don't change anything if it's the start tag.
             if i == 0:
-                trigram_seq.append(item)
+                trigram_seq.append(seq[i])
                 continue
             # trigram_item = (word, prevtag-tag)
-            trigram_item = (item[0], _combine_tag(seq[i-1][1], item[1]))
+            trigram_item = (seq[i][0], seq[i-1][1] + '-' + seq[i][1])
             trigram_seq.append(trigram_item)
         trigram_parsed.append(trigram_seq)
     return trigram_parsed
 
-def _kneser_ney_smoothing(bigram, unigram, discount):
-    pairs_count = np.sum(bigram * (bigram > 1))
+def _unfold_transition(transition, tag2id):
+    if max(['-' in t for t in tag2id]) == False:
+        return None, None
+    uf_tag2id = {END[1] : 0}
+    uf_transition = defaultdict(dict)
+    for fromtag in tag2id:
+        for totag in tag2id:
+            if transition[tag2id[fromtag], tag2id[totag]] <= EPS:
+                continue
+            # Approximation here.
+            l, r = totag.split('-', 1)[0], totag.rsplit('-', 1)[-1]
+            if r not in uf_transition[l]:
+                uf_transition[l][r] = 0.
+            uf_transition[l][r] += transition[tag2id[fromtag], tag2id[totag]]
+            _get_id(uf_tag2id, l)
 
-    bigram = _normalize(bigram, discount)
+    res = np.zeros([len(uf_tag2id), len(uf_tag2id)]) + EPS
+    # Add one to all valid transitions.
+    for fromtag in uf_transition:
+        for totag in uf_transition[fromtag]:
+            if _valid_transition(fromtag, totag):
+                res[uf_tag2id[fromtag], uf_tag2id[totag]] = 1. + uf_transition[fromtag][totag]
+    return res, uf_tag2id
 
-    for fromtag in unigram:
-        for totag in unigram:
-            _lambda = (discount / unigram[fromtag]) * np.sum(bigram[fromtag, :] > 1)
-            bigram[fromtag, totag] = bigram[fromtag, totag] + _lambda * np.sum(bigram[:, totag] > 1)
-    return np.maximum(bigram, EPS) / pairs_count
+def _kneser_ney_smoothing(transition, tag2id, discount):
+    uf_transition, uf_tag2id = _unfold_transition(transition, tag2id)
+    if uf_transition is None:
+        return _normalize(transition)
+    kn_transition = _kneser_ney_smoothing(uf_transition, uf_tag2id, discount)
 
-def counter(parsed, discount = 0.75):
+    result = _normalize(transition, discount)
+    for fromtag, fid in tag2id.iteritems():
+        for totag, tid in tag2id.iteritems():
+            l = uf_tag2id[totag.split('-', 1)[0]]
+            r = uf_tag2id[totag.rsplit('-', 1)[-1]]
+            gamma = (discount / np.sum(transition[fid, :])
+                     * np.sum(transition[fid, :] >= 1))
+            result[fid, tid] += gamma * kn_transition[l, r]
+    return result
+
+def _valid_transition(t1, t2):
+    return t1.rsplit('-', 1)[-1] == t2.split('-', 1)[0]
+
+def _get_id(d, w):
+    if w not in d:
+        d[w] = len(d)
+    return d[w]
+
+def build_dict(parsed):
+    # build dictionaries.
+    tag2id, word2id = {}, {}
+    for seq in parsed:
+        for (word, tag) in seq:
+            for tag in _split_tags(tag):
+                _get_id(tag2id, tag)
+            _get_id(word2id, word)
+    return tag2id, word2id
+
+
+def counter(parsed, tag2id, word2id, discount, invalid_prior):
     print 'counting emission/transition matrices.'
 
-    categories = {START[1] : 1, END[1] : 1}
-    vocabulary = set((START[0], END[0]))
+    transition = np.zeros((len(tag2id), len(tag2id)))
+    # Add one to all valid transitions.
+    for fromtag in tag2id:
+        for totag in tag2id:
+            if _valid_transition(fromtag, totag):
+                transition[tag2id[fromtag], tag2id[totag]] += 1.
+            else:
+                transition[tag2id[fromtag], tag2id[totag]] += invalid_prior
 
-    for seq in parsed:
-        for part in seq:
-            vocabulary.add(part[0])
-            for tag in _split_tags(id2tag[part[1]]):
-                if tag not in categories:
-                    categories[tag2id[tag]] = 0
-                categories[tag2id[tag]] += 1
-
-    # Add one to all transitions.
-    transition = np.ones((len(tag2id), len(tag2id)))
-    # No tag transit from END or to START.
-    transition[END[1], :] = EPS
-    transition[:, START[1]] = EPS
-
-    # Demoting bigram tag.
-    for tag in tag2id:
-        if '-' not in tag:
-            transition[:, tag2id[tag]] = EPS
-
-
+    # last column reserved for unknown words, with EPS as probability.
     emission = np.zeros((len(tag2id), len(word2id)+1)) + EPS
     for seq in parsed:
         for i in xrange(len(seq)):
             # record emission count for ith part.
-            tags = _split_tags(id2tag[seq[i][1]])
+            tags = _split_tags(seq[i][1])
             for tag in tags:
-                s = seq[i][0]
-                emission[tag2id[tag], s] += 1
+                word = seq[i][0]
+                emission[tag2id[tag], word2id[word]] += 1
 
             if i == 0:
                 continue
 
-            tags_prev = _split_tags(id2tag[seq[i-1][1]])
+            tags_prev = _split_tags(seq[i-1][1])
             # trainsition count from t1 to t2.
             for t1 in tags_prev:
                 for t2 in tags:
                     transition[tag2id[t1], tag2id[t2]] += 1
 
-    emission = _normalize(emission)
-    # transition: bigram, categories: unigram.
-    transition = _kneser_ney_smoothing(transition, categories, discount)
+    emission = np.maximum(EPS, _normalize(emission))
+    transition = np.maximum(EPS, _normalize(transition))
+    # transition = np.maximum(EPS,
+    #                         _kneser_ney_smoothing(transition, tag2id, discount))
     print 'done.'
     return emission, transition
 
-def translate_seq(seq):
-    return [(id2word[item[0]], id2tag[item[1]]) for item in seq]
+def id_to_token(seq, id2word, id2tag):
+    return [(id2word[item[0]] if item[0] in id2word else '**unk**',
+             id2tag[item[1]]) for item in seq]
+
+def token_to_id(seq, word2id, tag2id):
+    return [(word2id[item[0]] if item[0] in word2id else len(word2id),
+             tag2id[item[1]]) for item in seq]
 
 if __name__ == '__main__':
     path = '../WSJ-2-12/*/*.POS'
     docs = glob(path)
     parsed = parse(docs)
     parsed = trigramize(parsed)
-    emission, transition = counter(parsed)
-    print translate_seq(parsed[10])
+    tag2id, word2id = build_dict(parsed)
+    id2word = {v:k for k, v in word2id.iteritems()}
+    emission, transition = counter(parsed, tag2id, word2id)
+    print parsed[10]

@@ -37,6 +37,8 @@ def _atomize(seq):
     res += r
     return res
 
+
+
 def _merge(parsed):
     merged = []
     for seq in parsed:
@@ -47,9 +49,23 @@ class Reader(object):
     def __init__(self, atomize=True, split=0.9):
         self.START = ('**start**', 'START')
         self.END = ('**end**', 'END')
-        self.seed = 647
+        self.PAD = ('**pad**', 'PAD')
+        self.seed = 42
         self.atomize = atomize
         self.split = split
+        self.maxlen = -1
+        self.ignore_ids = None
+
+    def _pad(self, parsed):
+        buckets = np.percentile([len(s) for s in parsed], range(0, 101, 10))
+        self.maxlen = buckets[-2] # 90 percentile.
+        print('pad all sentences to', self.maxlen)
+        res = []
+        for seq in parsed:
+            if len(seq) > self.maxlen:
+                continue
+            res.append(seq + [self.PAD] * (self.maxlen - len(seq)))
+        return res
 
     def _raw_parse(self, docs):
         parsed = []
@@ -85,25 +101,44 @@ class Reader(object):
                 print('extended', parsed[-1])
         return parsed
 
-    def _build_vocab(self, merged):
+    def _build_vocab(self, padded):
+        merged = _merge(padded)
         words, tags = map(set, zip(*merged))
         self.word_to_id = dict(zip(words, range(len(words))))
         self.tag_to_id = dict(zip(tags, range(len(tags))))
+        self.ignore_ids = [self.tag_to_id[self.START[1]],
+                           self.tag_to_id[self.END[1]],
+                           self.tag_to_id[self.PAD[1]]]
 
-    def _to_ids(self, merged):
+    def _to_ids(self, padded):
         res = []
-        for item in merged:
-            res.append((self.word_to_id[item[0]], self.tag_to_id[item[1]]))
+        for seq in padded:
+            s = []
+            for item in seq:
+                s.append((self.word_to_id[item[0]], self.tag_to_id[item[1]]))
+            res.append(s)
         return res
 
-    def _get_datasets(self, merged, split):
-        merged = self._to_ids(merged)
-        train_size = int(len(merged) * split)
-        train = merged[:train_size]
-        test = merged[train_size:]
-        x_train, y_train = zip(*train)
-        x_test, y_test = zip(*test)
-        return map(np.asarray, [x_train, y_train, x_test, y_test])
+    def _split_xy(self, padded):
+        x = np.zeros([len(padded), self.maxlen], dtype=np.int32)
+        y = np.zeros([len(padded), self.maxlen], dtype=np.int32)
+        mask = np.ones([len(padded), self.maxlen], dtype=np.bool)
+
+        for i, seq in enumerate(padded):
+            x[i], y[i] = map(np.asarray, zip(*seq))
+
+        for ignored in self.ignore_ids:
+            mask = np.logical_and(mask, y != ignored)
+        return x, y, mask
+
+    def _get_datasets(self, padded, split):
+        padded = self._to_ids(padded)
+        train_size = int(len(padded) * split)
+        train = padded[:train_size]
+        test = padded[train_size:]
+        x_train, y_train, mask_train = self._split_xy(train)
+        x_test, y_test, mask_test = self._split_xy(test)
+        return x_train, y_train, mask_train, x_test, y_test, mask_test
 
     def get_data(self, docs):
         parsed = self._raw_parse(docs)
@@ -114,26 +149,15 @@ class Reader(object):
             parsed = res
         np.random.seed(self.seed)
         np.random.shuffle(parsed)
-        merged = _merge(parsed)
-        self._build_vocab(merged)
-        return self._get_datasets(merged, self.split)
+        parsed = self._pad(parsed)
+        self._build_vocab(parsed)
+        return self._get_datasets(parsed, self.split)
 
     @staticmethod
-    def iterator(x, y, batch_size, num_steps):
+    def iterator(x, y, mask, batch_size):
         """Iterate on the WSJ data.
         """
-        data_len = len(x)
-        batch_len = data_len // batch_size
-        data_x = np.zeros([batch_size, batch_len], dtype=np.int32)
-        data_y = np.zeros([batch_size, batch_len], dtype=np.int32)
-        for i in range(batch_size):
-            data_x[i] = x[batch_len * i:batch_len * (i + 1)]
-            data_y[i] = y[batch_len * i:batch_len * (i + 1)]
-            epoch_size = (batch_len - 1) // num_steps
-            if epoch_size == 0:
-                raise ValueError("epoch_size == 0, decrease batch_size or num_steps")
-
+        epoch_size = (len(x)-1) // batch_size
         for i in range(epoch_size):
-            x_ = data_x[:, i*num_steps:(i+1)*num_steps]
-            y_ = data_y[:, i*num_steps:(i+1)*num_steps]
-            yield (x_, y_)
+            yield (x[i*batch_size:(i+1)*batch_size], y[i*batch_size:(i+1)*batch_size],
+                   mask[i*batch_size:(i+1)*batch_size])
